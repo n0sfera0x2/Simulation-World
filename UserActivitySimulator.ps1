@@ -7,6 +7,8 @@
 .PARAMETER None - configure via the variables in the Configuration section.
 #>
 
+# $script='C:\UserActivitySimulator.ps1';$action=New-ScheduledTaskAction -Execute 'PowerShell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`"";$trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 15) -RepetitionDuration (New-TimeSpan -Days 3650);Register-ScheduledTask -TaskName 'UserActivitySimulator' -Action $action -Trigger $trigger -RunLevel Highest -Force
+
 #region Configuration - edit as needed
 # Base location to create temp simulation data (defaults to user TEMP)
 $TempBase = Join-Path -Path $env:TEMP -ChildPath "UserActivitySimulator"
