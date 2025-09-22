@@ -1,53 +1,46 @@
 <#
 .SYNOPSIS
-  Simulate user activity on Windows: file IO, simple network calls, process launches, directory listing.
-.DESCRIPTION
-  Intended to be run periodically (e.g., every 15 minutes via Task Scheduler).
-  All created files/folders are kept under a single base temp folder and are cleaned up.
-.PARAMETER None - configure via the variables in the Configuration section.
+  Simulate benign user activity on Windows (fast run for every-15-min schedule):
+  - bounded file I/O with timeouts + heartbeats
+  - simple HTTP + DNS
+  - optional short-lived GUI app launches (off by default)
+  - auto-rotation + cleanup to avoid growth
+
+.NOTES
+  Adjust the configuration block as needed. Defaults target a ~tens-of-seconds run.
 #>
 
-#region Configuration - edit as needed
-# Base location to create temp simulation data (defaults to user TEMP)
+#region Configuration (quick-run defaults)
+# Base temp for all activity
 $TempBase = Join-Path -Path $env:TEMP -ChildPath "UserActivitySimulator"
 
-# Maximum total disk usage (MB) this run should create (script will not exceed this)
-$MaxCreateMB = 150          # e.g., 150 MB
+# I/O budget (kept small for quick runs)
+$MaxCreateMB       = 20      # total bytes to create this run (approx)
+$MaxFileKB         = 512     # max single-file size (~0.5 MB)
+$TargetFileCount   = 40      # upper bound; capped by $MaxCreateMB
 
-# Maximum size of any single file created (KB)
-$MaxFileKB = 5120           # 5 MB per file
+# Network checks (short timeouts)
+$HttpEndpoints     = @("https://example.com/","https://www.bing.com/")
+$DnsNames          = @("example.com","microsoft.com")
+$HttpTimeoutSec    = 6
 
-# Approx number of files to try to create (script will cap based on MaxCreateMB)
-$TargetFileCount = 60
+# Optional GUI app launches (disabled for headless Task Scheduler runs)
+$LaunchGuiApps     = $false
+$GuiApps           = @("notepad.exe","calc.exe")
+$GuiAppRuntimeSec  = 5
 
-# Endpoints for simple HTTP checks (change to trusted, internal endpoints if desired)
-$HttpEndpoints = @("https://example.com/", "https://www.bing.com/")
-
-# DNS names to resolve (safe)
-$DnsNames = @("example.com", "microsoft.com")
-
-# Processes to briefly open to simulate user activity. If you prefer headless only, set $LaunchGuiApps = $false
-$LaunchGuiApps = $true
-$GuiApps = @("notepad.exe", "calc.exe")
-
-# How long (seconds) to keep a launched GUI app running before closing it
-$GuiAppRuntimeSec = 6
-
-# Path for log files
-$LogPath = Join-Path -Path $TempBase -ChildPath "logs"
-# Rotate logs older than N days
-$LogRetentionDays = 3
-
-# Clean up simulation folders older than this (days)
+# Logging and retention
+$LogPath           = Join-Path -Path $TempBase -ChildPath "logs"
+$LogRetentionDays  = 3
 $SimFolderRetentionDays = 1
 
-# Run duration guard (optional) - max seconds this script will run
-$MaxRunSeconds = 600   # 10 minutes
+# Hard run cap (guards against unexpected stalls)
+$MaxRunSeconds     = 240     # 4 minutes
 #endregion
 
-#region Helper Functions
+#region Helpers
 function Write-Log {
-    param($Message, $Level = "INFO")
+    param([Parameter(Mandatory)][string]$Message,[string]$Level="INFO")
     $t = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
     $line = "$t [$Level] $Message"
     $logfile = Join-Path $LogPath "simulator.log"
@@ -57,25 +50,35 @@ function Write-Log {
 }
 
 function Get-RandomBytesFile {
-    param($Path, $SizeBytes)
-    # Create a file with random bytes up to SizeBytes. Uses .NET crypto RNG for quality and speed.
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][long]$SizeBytes,
+        [int]$TimeoutSec = 20,     # per-file timeout
+        [int]$ChunkSize  = 65536,  # 64 KiB
+        [int]$HeartbeatSec = 3
+    )
     $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-    $bufferSize = 65536  # 64 KiB chunk
-    $buffer = New-Object byte[] $bufferSize
-    $remaining = $SizeBytes
-    $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+    $buffer = New-Object byte[] $ChunkSize
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    $nextBeat = (Get-Date).AddSeconds($HeartbeatSec)
+    $remaining = [long]$SizeBytes
+    $written = 0L
+
+    $fs = [System.IO.File]::Open($Path,[System.IO.FileMode]::Create,[System.IO.FileAccess]::Write,[System.IO.FileShare]::None)
     try {
         while ($remaining -gt 0) {
+            if ((Get-Date) -gt $deadline) { throw "Per-file timeout after $TimeoutSec s writing $Path (wrote $written of $SizeBytes bytes)" }
             $chunk = [Math]::Min($buffer.Length, $remaining)
-            if ($chunk -ne $buffer.Length) {
-                $tmp = New-Object byte[] $chunk
-                $rng.GetBytes($tmp)
-                $fs.Write($tmp, 0, $chunk)
-            } else {
-                $rng.GetBytes($buffer)
-                $fs.Write($buffer, 0, $chunk)
-            }
+            if ($chunk -ne $buffer.Length) { $buffer = New-Object byte[] $chunk } # shrink for last chunk
+            $rng.GetBytes($buffer)
+            $fs.Write($buffer,0,$chunk)
             $remaining -= $chunk
+            $written   += $chunk
+
+            if ((Get-Date) -gt $nextBeat) {
+                Write-Log "…writing ${Path}: $([math]::Round($written/1KB,0)) / $([math]::Round($SizeBytes/1KB,0)) KB"
+                $nextBeat = (Get-Date).AddSeconds($HeartbeatSec)
+            }
         }
     } finally {
         $fs.Close()
@@ -84,86 +87,77 @@ function Get-RandomBytesFile {
 }
 
 function Safe-RemoveFolderIfEmpty {
-    param($dir)
+    param([Parameter(Mandatory)][string]$dir)
     if (Test-Path $dir) {
         try {
             $items = Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue
-            if (-not $items) {
-                Remove-Item -LiteralPath $dir -Force -Recurse -ErrorAction SilentlyContinue
-            }
-        } catch {
-            # ignore
-        }
+            if (-not $items) { Remove-Item -LiteralPath $dir -Force -Recurse -ErrorAction SilentlyContinue }
+        } catch { }
     }
 }
 #endregion
 
-#region Start run
-$runStart = Get-Date
-$runDeadline = $runStart.AddSeconds($MaxRunSeconds)
+#region Start
+$runStart   = Get-Date
+$runDeadline= $runStart.AddSeconds($MaxRunSeconds)
 New-Item -Path $TempBase -ItemType Directory -Force | Out-Null
 Write-Log "Starting simulation run in $TempBase"
 
-# Create a timestamped run folder
 $ts = (Get-Date).ToString("yyyyMMdd_HHmmss")
 $RunFolder = Join-Path $TempBase ("run_$ts")
 New-Item -Path $RunFolder -ItemType Directory -Force | Out-Null
 Write-Log "Run folder: $RunFolder"
 #endregion
 
-#region File creation (bounded)
-# Compute approximate bytes allowed
-$maxBytes = [math]::Floor($MaxCreateMB * 1KB * 1KB)  # MB -> bytes
-$createdBytes = 0
-$createdFiles = 0
-
-# Determine max file size in bytes
-$maxFileBytes = [math]::Floor($MaxFileKB * 1KB)
+#region File creation (bounded + fast)
+$maxBytes       = [math]::Floor($MaxCreateMB * 1KB * 1KB)
+$createdBytes   = 0L
+$createdFiles   = 0
+$maxFileBytes   = [math]::Floor($MaxFileKB * 1KB)
 
 for ($i = 1; $i -le $TargetFileCount; $i++) {
-    if ((Get-Date) -gt $runDeadline) { Write-Log "Reached runtime deadline during file creation"; break }
+    if ((Get-Date) -gt $runDeadline) { Write-Log "Runtime cap reached during file creation"; break }
     $remainingBytes = $maxBytes - $createdBytes
     if ($remainingBytes -le 1024) { break }
 
-    # choose a file size: random between 1KB and min(maxFileBytes, remainingBytes)
     $maxThis = [math]::Min($maxFileBytes, $remainingBytes)
-    $size = Get-Random -Minimum 1024 -Maximum ($maxThis + 1)
-    $fname = "doc_$i_$([System.Guid]::NewGuid().ToString('N').Substring(0,8)).bin"
-    $fpath = Join-Path $RunFolder $fname
+    $size    = Get-Random -Minimum 8192 -Maximum ($maxThis + 1)  # min 8KB
+    $fname   = "doc_$([System.Guid]::NewGuid().ToString('N').Substring(0,8)).bin"
+    $fpath   = Join-Path $RunFolder $fname
 
     try {
-        Get-RandomBytesFile -Path $fpath -SizeBytes $size
-        $createdBytes += (Get-Item $fpath).Length
+        Get-RandomBytesFile -Path $fpath -SizeBytes $size -TimeoutSec 20
+        $len = (Get-Item $fpath).Length
+        $createdBytes += $len
         $createdFiles++
-        Write-Log "Created file $fname size $([math]::Round((Get-Item $fpath).Length/1KB,2)) KB"
-        Start-Sleep -Milliseconds (Get-Random -Minimum 50 -Maximum 200)
+        Write-Log "Created file $fname size $([math]::Round($len/1KB,2)) KB"
+        Start-Sleep -Milliseconds (Get-Random -Minimum 30 -Maximum 120)
     } catch {
-        Write-Log "Error creating $fpath : $_" "WARN"
+        Write-Log "Error creating ${fpath} : $_" "WARN"
+        # best-effort cleanup of partial file
+        try { if (Test-Path $fpath) { Remove-Item -LiteralPath $fpath -Force -ErrorAction SilentlyContinue } } catch {}
     }
 }
-Write-Log "File creation done. Files created: $createdFiles. Bytes created: $createdBytes"
+Write-Log "File creation done. Files=$createdFiles, Bytes=$createdBytes"
 #endregion
 
-#region File read/modify / simulate user editing
-# Read random files, append a small line, rename some
+#region Quick edit/rename pass
 $files = Get-ChildItem -Path $RunFolder -File -ErrorAction SilentlyContinue
 if ($files) {
-    $shuffle = $files | Get-Random -Count ([math]::Min($files.Count, 20))
-    foreach ($f in $shuffle) {
-        if ((Get-Date) -gt $runDeadline) { Write-Log "Reached runtime deadline during file ops"; break }
+    $sample = $files | Get-Random -Count ([math]::Min($files.Count, [int]([math]::Max(6,[math]::Ceiling($files.Count*0.3)))))  # ~30% up to min 6
+    foreach ($f in $sample) {
+        if ((Get-Date) -gt $runDeadline) { Write-Log "Runtime cap reached during file ops"; break }
         try {
-            # read small chunk (may fail on binary; that's OK)
-            $null = Get-Content -Path $f.FullName -TotalCount 2 -ErrorAction SilentlyContinue
-            # append a tiny metadata line
+            $null = Get-Content -Path $f.FullName -TotalCount 1 -ErrorAction SilentlyContinue
             Add-Content -Path $f.FullName -Value "Edited by UserActivitySimulator at $((Get-Date).ToString())"
-            Write-Log "Read & appended to $($f.Name)"
-            # rename occasionally
-            if ((Get-Random -Minimum 0 -Maximum 100) -lt 12) {
+            if ((Get-Random -Minimum 0 -Maximum 100) -lt 15) {
                 $newName = "ren_$($f.BaseName)_$([System.Guid]::NewGuid().ToString('N').Substring(0,6))$($f.Extension)"
                 Rename-Item -Path $f.FullName -NewName $newName -ErrorAction SilentlyContinue
                 Write-Log "Renamed $($f.Name) -> $newName"
+            } else {
+                Write-Log "Edited $($f.Name)"
             }
-            Start-Sleep -Milliseconds (Get-Random -Minimum 80 -Maximum 400)
+            Start-Sleep -Milliseconds (Get-Random -Minimum 40 -Maximum 160)
         } catch {
             Write-Log "File op error on $($f.Name): $_" "WARN"
         }
@@ -171,73 +165,68 @@ if ($files) {
 }
 #endregion
 
-#region Network interactions (HTTP + DNS + small downloads)
+#region Network (short timeouts)
 foreach ($url in $HttpEndpoints) {
-    if ((Get-Date) -gt $runDeadline) { Write-Log "Reached runtime deadline during network ops"; break }
+    if ((Get-Date) -gt $runDeadline) { Write-Log "Runtime cap reached during HTTP"; break }
     try {
-        $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 12 -ErrorAction Stop
+        $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec $HttpTimeoutSec -ErrorAction Stop
         Write-Log "HTTP GET $url => $($resp.StatusCode) (len $($resp.Content.Length))"
-        # save a tiny snapshot then delete it to simulate download+cleanup
         $tmpSnap = Join-Path $RunFolder ("snap_" + ([System.Guid]::NewGuid().ToString('N').Substring(0,6)) + ".html")
         $resp.Content | Out-File -FilePath $tmpSnap -Encoding utf8
-        Start-Sleep -Milliseconds (Get-Random -Minimum 100 -Maximum 300)
         Remove-Item -Path $tmpSnap -Force -ErrorAction SilentlyContinue
-        Write-Log "Downloaded+deleted snapshot for $url"
     } catch {
-        Write-Log "HTTP check failed for $url : $_" "WARN"
+        Write-Log "HTTP failed for $url : $_" "WARN"
     }
 }
 
 foreach ($name in $DnsNames) {
     if ((Get-Date) -gt $runDeadline) { break }
     try {
+        # Resolve-DnsName has no timeout; this is usually instant. If it occasionally stalls, it's caught by $MaxRunSeconds.
         $r = Resolve-DnsName -Name $name -ErrorAction Stop
         $ips = ($r | Where-Object { $_.IPAddress } | Select-Object -First 3 | ForEach-Object { $_.IPAddress }) -join ","
-        Write-Log "DNS resolve $name => $ips"
+        Write-Log "DNS $name => $ips"
     } catch {
-        Write-Log "DNS resolve failed $name : $_" "WARN"
+        Write-Log "DNS failed $name : $_" "WARN"
     }
 }
 #endregion
 
-#region Process launches to simulate interactive apps (optional)
+#region Optional GUI activity (disabled by default)
 if ($LaunchGuiApps) {
     foreach ($app in $GuiApps) {
-        if ((Get-Date) -gt $runDeadline) { Write-Log "Reached runtime deadline during GUI app ops"; break }
+        if ((Get-Date) -gt $runDeadline) { Write-Log "Runtime cap during GUI apps"; break }
         try {
             $p = Start-Process -FilePath $app -PassThru -ErrorAction SilentlyContinue
             if ($p) {
-                Write-Log "Launched $app (PID $($p.Id)). Will close in $GuiAppRuntimeSec s"
+                Write-Log "Launched $app (PID $($p.Id))"
                 Start-Sleep -Seconds $GuiAppRuntimeSec
-                try { $p.CloseMainWindow() | Out-Null; Start-Sleep -Seconds 1 } catch {}
+                try { $p.CloseMainWindow() | Out-Null; Start-Sleep -Milliseconds 500 } catch {}
                 try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {}
                 Write-Log "Closed $app (PID $($p.Id))"
             } else {
-                Write-Log "Failed to launch $app (Start-Process returned nothing)" "WARN"
+                Write-Log "Failed to launch $app (no process)" "WARN"
             }
         } catch {
-            # FIXED: brace variable to avoid "$app:" parse issue
             Write-Log "Error launching ${app}: $_" "WARN"
         }
-        Start-Sleep -Milliseconds (Get-Random -Minimum 200 -Maximum 800)
     }
 }
 #endregion
 
-#region Cleanup - delete a portion of created files to simulate tidy-up and avoid growth
+#region Cleanup to avoid growth
 try {
     $allFiles = Get-ChildItem -Path $RunFolder -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime
     if ($allFiles) {
-        # delete older half of files (or keep at most 40%)
-        $keepRatio = 0.6
+        $keepRatio = 0.6 # keep 60%
         $keepCount = [math]::Ceiling($allFiles.Count * $keepRatio)
-        $toDelete = $allFiles | Select-Object -First ($allFiles.Count - $keepCount)
+        $toDelete  = $allFiles | Select-Object -First ($allFiles.Count - $keepCount)
         foreach ($d in $toDelete) {
             try {
                 Remove-Item -LiteralPath $d.FullName -Force -ErrorAction SilentlyContinue
-                Write-Log "Deleted temp file $($d.Name) during cleanup"
+                Write-Log "Deleted temp file $($d.Name)"
             } catch {
-                Write-Log "Failed to delete $($d.Name): $_" "WARN"
+                Write-Log "Delete failed $($d.Name): $_" "WARN"
             }
         }
     }
@@ -246,38 +235,36 @@ try {
 }
 #endregion
 
-#region Sweep old runs and rotate logs
+#region Sweep old runs + rotate logs
 try {
-    # Sweep run folders older than retention
     $cutoff = (Get-Date).AddDays(-$SimFolderRetentionDays)
-    Get-ChildItem -Path $TempBase -Directory -ErrorAction SilentlyContinue | Where-Object {
-        $_.Name -like "run_*" -and $_.CreationTime -lt $cutoff
-    } | ForEach-Object {
-        try {
-            Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
-            Write-Log "Removed old run folder: $($_.FullName)"
-        } catch {
-            Write-Log "Failed to remove old run folder $($_.FullName): $_" "WARN"
-        }
-    }
+    Get-ChildItem -Path $TempBase -Directory -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -like "run_*" -and $_.CreationTime -lt $cutoff } |
+      ForEach-Object {
+          try {
+              Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+              Write-Log "Removed old run folder: $($_.FullName)"
+          } catch {
+              Write-Log "Failed removing old run folder $($_.FullName): $_" "WARN"
+          }
+      }
 
-    # Rotate logs: remove logs older than retention
-    Get-ChildItem -Path $LogPath -File -ErrorAction SilentlyContinue | Where-Object {
-        $_.CreationTime -lt (Get-Date).AddDays(-$LogRetentionDays)
-    } | ForEach-Object {
-        try {
-            Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
-            Write-Log "Rotated old log $($_.Name)"
-        } catch {
-            Write-Log "Failed to rotate log $($_.Name): $_" "WARN"
-        }
-    }
+    Get-ChildItem -Path $LogPath -File -ErrorAction SilentlyContinue |
+      Where-Object { $_.CreationTime -lt (Get-Date).AddDays(-$LogRetentionDays) } |
+      ForEach-Object {
+          try {
+              Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+              Write-Log "Rotated old log $($_.Name)"
+          } catch {
+              Write-Log "Log rotate failed $($_.Name): $_" "WARN"
+          }
+      }
 } catch {
     Write-Log "Sweep error: $_" "WARN"
 }
 #endregion
 
-#region Final tidy: if run folder is tiny or empty, remove it
+#region Final tidy
 try {
     $remaining = Get-ChildItem -Path $RunFolder -Force -ErrorAction SilentlyContinue
     if (-not $remaining) {
@@ -291,6 +278,6 @@ try {
 }
 #endregion
 
-# FIXED: ensure the timespan is expanded inside the string
+# Done
 $elapsedSec = [math]::Round(((Get-Date) - $runStart).TotalSeconds, 2)
 Write-Log "Simulation run completed in $elapsedSec sec"
