@@ -7,8 +7,6 @@
 .PARAMETER None - configure via the variables in the Configuration section.
 #>
 
-# $script='C:\UserActivitySimulator.ps1';$action=New-ScheduledTaskAction -Execute 'PowerShell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`"";$trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 15) -RepetitionDuration (New-TimeSpan -Days 3650);Register-ScheduledTask -TaskName 'UserActivitySimulator' -Action $action -Trigger $trigger -RunLevel Highest -Force
-
 #region Configuration - edit as needed
 # Base location to create temp simulation data (defaults to user TEMP)
 $TempBase = Join-Path -Path $env:TEMP -ChildPath "UserActivitySimulator"
@@ -62,15 +60,21 @@ function Get-RandomBytesFile {
     param($Path, $SizeBytes)
     # Create a file with random bytes up to SizeBytes. Uses .NET crypto RNG for quality and speed.
     $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-    $buffer = New-Object byte[] (64KB)   # chunk size
+    $bufferSize = 65536  # 64 KiB chunk
+    $buffer = New-Object byte[] $bufferSize
     $remaining = $SizeBytes
     $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
     try {
         while ($remaining -gt 0) {
             $chunk = [Math]::Min($buffer.Length, $remaining)
-            $chunkBuffer = New-Object byte[] $chunk
-            $rng.GetBytes($chunkBuffer)
-            $fs.Write($chunkBuffer, 0, $chunk)
+            if ($chunk -ne $buffer.Length) {
+                $tmp = New-Object byte[] $chunk
+                $rng.GetBytes($tmp)
+                $fs.Write($tmp, 0, $chunk)
+            } else {
+                $rng.GetBytes($buffer)
+                $fs.Write($buffer, 0, $chunk)
+            }
             $remaining -= $chunk
         }
     } finally {
@@ -109,7 +113,7 @@ Write-Log "Run folder: $RunFolder"
 
 #region File creation (bounded)
 # Compute approximate bytes allowed
-$maxBytes = [math]::Floor($MaxCreateMB * 1KB * 1KB)  # careful: MB -> bytes
+$maxBytes = [math]::Floor($MaxCreateMB * 1KB * 1KB)  # MB -> bytes
 $createdBytes = 0
 $createdFiles = 0
 
@@ -148,15 +152,14 @@ if ($files) {
     foreach ($f in $shuffle) {
         if ((Get-Date) -gt $runDeadline) { Write-Log "Reached runtime deadline during file ops"; break }
         try {
-            # read small chunk
-            $contentSample = Get-Content -Path $f.FullName -TotalCount 2 -ErrorAction SilentlyContinue
+            # read small chunk (may fail on binary; that's OK)
+            $null = Get-Content -Path $f.FullName -TotalCount 2 -ErrorAction SilentlyContinue
             # append a tiny metadata line
             Add-Content -Path $f.FullName -Value "Edited by UserActivitySimulator at $((Get-Date).ToString())"
             Write-Log "Read & appended to $($f.Name)"
             # rename occasionally
             if ((Get-Random -Minimum 0 -Maximum 100) -lt 12) {
                 $newName = "ren_$($f.BaseName)_$([System.Guid]::NewGuid().ToString('N').Substring(0,6))$($f.Extension)"
-                $newPath = Join-Path $f.DirectoryName $newName
                 Rename-Item -Path $f.FullName -NewName $newName -ErrorAction SilentlyContinue
                 Write-Log "Renamed $($f.Name) -> $newName"
             }
@@ -213,7 +216,8 @@ if ($LaunchGuiApps) {
                 Write-Log "Failed to launch $app (Start-Process returned nothing)" "WARN"
             }
         } catch {
-            Write-Log "Error launching $app: $_" "WARN"
+            # FIXED: brace variable to avoid "$app:" parse issue
+            Write-Log "Error launching ${app}: $_" "WARN"
         }
         Start-Sleep -Milliseconds (Get-Random -Minimum 200 -Maximum 800)
     }
@@ -261,7 +265,12 @@ try {
     Get-ChildItem -Path $LogPath -File -ErrorAction SilentlyContinue | Where-Object {
         $_.CreationTime -lt (Get-Date).AddDays(-$LogRetentionDays)
     } | ForEach-Object {
-        try { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue; Write-Log "Rotated old log $($_.Name)" } catch { }
+        try {
+            Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+            Write-Log "Rotated old log $($_.Name)"
+        } catch {
+            Write-Log "Failed to rotate log $($_.Name): $_" "WARN"
+        }
     }
 } catch {
     Write-Log "Sweep error: $_" "WARN"
@@ -282,4 +291,6 @@ try {
 }
 #endregion
 
-Write-Log "Simulation run completed in $((Get-Date) - $runStart).TotalSeconds sec"
+# FIXED: ensure the timespan is expanded inside the string
+$elapsedSec = [math]::Round(((Get-Date) - $runStart).TotalSeconds, 2)
+Write-Log "Simulation run completed in $elapsedSec sec"
