@@ -1,0 +1,41 @@
+{
+  "_time": "{{ timestamp }}",
+  "Operation": "{{ operation }}",
+  "OrganizationId": "{{ org_id }}",
+  "RecordType": "{{ record_type }}",
+  "ResultType": "{{ result_type }}",
+  "UserType": "{{ user_type }}",
+  "Roles": {{ roles }},
+  "ClientIP": "{{ client_ip }}",
+  "UserId": "{{ user_id }}",
+  "Workload": "AzureActiveDirectory",
+  "ResultStatus": "{{ result_status }}",
+  "DeviceDetail": {
+    "DeviceId": "{{ device_id }}",
+    "OperatingSystem": "{{ os }}",
+    "Browser": "{{ browser }}"
+  },
+  "UserAgent": "{{ user_agent }}",
+  "AppId": "{{ app_id }}",
+  "AppDisplayName": "{{ app_display_name }}",
+  "Id": "{{ event_id }}",
+  "AdditionalDetails": [
+    {"Key": "AuthenticationRequirement", "Value": "{{ auth_requirement }}" },
+    {"Key": "MfaRequired", "Value": "{{ mfa_required }}" }
+  ],
+  "GeoLocation": {
+    "Country": "{{ country }}",
+    "City": "{{ city }}"
+  },
+  "ASN": {
+    "ASN": "{{ asn_number }}",
+    "ASN_Name": "{{ asn_name }}",
+    "IsProxy": "{{ is_proxy }}"
+  },
+  "Resource": "{{ resource }}",
+  "EmailDetails": {
+    "Sender": "{{ email_sender }}",
+    "Subject": "{{ email_subject }}",
+    "MaliciousLink": "{{ email_url }}"
+  }
+}
