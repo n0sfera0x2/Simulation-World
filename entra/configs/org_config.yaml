@@ -1,0 +1,6 @@
+org_id: 67aaf9b4-57b8-4ca6-b68c-2274d63ff1b0
+record_type: 15
+resource: Credential
+result_status: Success
+result_type: 0
+workload: AzureActiveDirectory
