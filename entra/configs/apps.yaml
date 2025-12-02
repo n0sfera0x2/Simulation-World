@@ -1,0 +1,7 @@
+apps:
+  Azure MFA: 009f3451-245e-12f5-225d-007865a6d502
+  Exchange Online: 029f5f70-1642-2096-26f6-00cc4012391f
+  Microsoft Graph: 017acbbd-0ba1-0c31-11b8-00324a083cd3
+  Office365 SharePoint: 0184690c-2047-18bd-05b6-002008efddc5
+  Teams: 00f80bdd-07b1-0de1-0f20-0088e98269d7
+  Contoso Phish Portal: 10000000-dead-beef-baad-ph1shp0rtal
