@@ -93,7 +93,7 @@ def main():
                         default="admin1@contoso.com", 
                         help="User email to simulate attack for (defaults to admin1@contoso.com)")
     parser.add_argument("--output", 
-                        default="/home/spen/threat_emulation/o365/oauth_consent_flat.jsonl", 
+                        default="/home/spen/threat_emulation/o365/mal_oauth_consent.jsonl", 
                         help="Output path for the logs")
     args = parser.parse_args()
 
