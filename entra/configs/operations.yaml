@@ -1,0 +1,62 @@
+operations:
+  # Legitimate operations
+  - name: TokenIssued
+    auth_requirement: SingleFactorAuthentication
+    mfa_required: false
+    app_display_name: Azure MFA
+    result_status: Success
+
+  - name: InteractiveUserSignIn
+    auth_requirement: MultiFactorAuthentication
+    mfa_required: true
+    app_display_name: Exchange Online
+    result_status: Success
+
+  # Failure scenarios
+  - name: InteractiveUserSignIn
+    auth_requirement: MultiFactorAuthentication
+    mfa_required: true
+    app_display_name: Exchange Online
+    result_status: Failure
+    failure_reason: MFA challenge not completed
+
+  - name: InteractiveUserSignIn
+    auth_requirement: SingleFactorAuthentication
+    mfa_required: false
+    app_display_name: Exchange Online
+    result_status: Failure
+    failure_reason: Invalid credentials
+
+  - name: TokenIssued
+    auth_requirement: SingleFactorAuthentication
+    mfa_required: false
+    app_display_name: Microsoft Graph
+    result_status: Failure
+    failure_reason: Conditional Access Block
+
+  - name: TokenIssued
+    auth_requirement: SingleFactorAuthentication
+    mfa_required: false
+    app_display_name: Microsoft Graph
+    result_status: Failure
+    failure_reason: Disabled account
+
+  # Root cause attack vector
+  - name: ConsentToApp
+    auth_requirement: SingleFactorAuthentication
+    mfa_required: false
+    app_display_name: Contoso Phish Portal
+    result_status: Success
+    category: Application
+    risk_level: High
+    description: User granted consent to a third-party application
+    audit_only: false
+
+  - name: MailReceived
+    auth_requirement: None
+    mfa_required: false
+    app_display_name: Exchange Online
+    result_status: Success
+    category: Email
+    description: User received a phishing email
+    risk_level: High
