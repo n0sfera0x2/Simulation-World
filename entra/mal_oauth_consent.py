@@ -3,39 +3,35 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-# Assuming EntraLogSimulator is accessible (either imported from a module or defined locally)
-# For this example, we'll assume the essential method is available.
-# NOTE: You will need to ensure EntraLogSimulator is configured in your actual environment.
-# Since you provided the main function of your original script, I'll use a placeholder for the class.
+# --- EntraLogSimulator Placeholder (Needed for context setup) ---
 try:
     from entra_simulator import EntraLogSimulator
 except ImportError:
-    print("Warning: EntraLogSimulator class not found. Using a placeholder.")
+    print("Warning: EntraLogSimulator class not found. Using a placeholder for initialization.")
     class EntraLogSimulator:
         def __init__(self, **kwargs):
             # Mock essential attributes needed for the script to run
-            self.users = []
-        def _render_template(self, entity, operation, timestamp, is_failure, is_spn):
-            # This would be the actual log rendering logic from your framework
-            # For a standalone script, we will define the structure manually below.
-            raise NotImplementedError("Placeholder simulator cannot render templates.")
-
+            # We'll assume a dummy user list for the lookup
+            self.users = [{
+                "user_id": "admin1@contoso.com",
+                "ip": "44.192.30.81", 
+                "display_name": "Admin One",
+                # ... other user details
+            }]
 
 def generate_oauth_consent_log(username, output_path, simulator):
     """
-    Generates a single raw Microsoft Entra ID Audit Log for an OAuth consent event.
+    Generates a high-fidelity Microsoft Entra ID Audit Log for an OAuth consent event.
     """
+    
     # 1. Define the specific Operation (bypassing operations.yaml)
+    # Using the realistic activityDisplayName
     oauth_consent_operation = {
         "name": "ConsentToApp",
-        "auth_requirement": "SingleFactorAuthentication",
-        "mfa_required": False,
-        "app_display_name": "Contoso Phish Portal",
-        "result_status": "Success",
+        "activityDisplayName": "Consent to application", # <-- REALISM FIX 1
         "category": "ApplicationManagement",
-        "risk_level": "High",
-        "description": "User granted consent to third-party application",
-        "audit_only": False,
+        "result_status": "Success",
+        "loggedByService": "Core Directory",
         "custom_fields": {
             "targetResources": [
                 {
@@ -59,51 +55,48 @@ def generate_oauth_consent_log(username, output_path, simulator):
         # Fallback/Default data if user isn't found in simulator context
         user = {
             "user_id": username,
-            "ip": "44.192.30.81", # Corresponds to the srcIp in your alert object
-            "os": "Windows 10",
-            "browser": "Chrome",
-            "city": "Dallas",
-            "country": "US",
-            "asn": "AS0000",
-            "asn_name": "GenericISP",
-            "is_proxy": False,
-            "display_name": username.split('@')[0].capitalize()
+            "ip": "44.192.30.81", # Default IP from the alert object
+            "display_name": username.split('@')[0].capitalize(),
         }
         print(f"Warning: User '{username}' not found in users.yaml. Using default context data.")
 
 
-    # 3. Time logic
-    consent_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-
-    # 4. Manually construct the final log object using the defined structure
-    # NOTE: If simulator._render_template can handle the 'operation' object, use that.
-    # Otherwise, use the structure below:
+    # 3. Time logic: Using microseconds for higher realism
+    # Real Entra ID logs often use high-precision timestamps
+    consent_dt = datetime.now(timezone.utc)
+    # Format: YYYY-MM-DDTHH:MM:SS.mmmZ
+    consent_ts = consent_dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z" 
     
+    # 4. Manually construct the final log object
     log_entry = {
-      "time": consent_ts,
+      "time": consent_ts, # <-- REALISM FIX 2: High precision timestamp
       "id": str(uuid.uuid4()),
       "operationName": oauth_consent_operation["name"],
       "category": oauth_consent_operation["category"],
       "result": oauth_consent_operation["result_status"],
-      "activityDisplayName": oauth_consent_operation["description"],
-      "loggedByService": "Core Directory",
+      "activityDisplayName": oauth_consent_operation["activityDisplayName"],
+      "loggedByService": oauth_consent_operation["loggedByService"],
       "initiatedBy": {
         "user": {
-          "id": f"user-{hash(username)}", # Simulated User ID
-          "displayName": user.get("display_name"),
+          "id": f"user-{hash(username)}", 
+          "displayName": user.get("display_name"), # <-- REALISM FIX 3: Added displayName
           "userPrincipalName": username,
           "ipAddress": user.get("ip")
-        }
+        },
+        "type": "User" # <-- REALISM FIX 4: Added initiator type
       },
       "targetResources": oauth_consent_operation["custom_fields"]["targetResources"],
-      "additionalDetails": oauth_consent_operation["custom_fields"]["additionalDetails"]
+      "additionalDetails": oauth_consent_operation["custom_fields"]["additionalDetails"],
+      # <-- REALISM FIX 5 & 6: Added Client Context
+      "clientAppId": "00000003-0000-0ff1-ce00-000000000000", # Common ID for Exchange/M365 client
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.88 Safari/537.36" 
     }
     
     # 5. Write log
     with open(output_path, "w") as f:
         f.write(json.dumps(log_entry) + "\n")
 
-    print(f"[+] OAuth Consent log for {username} written to: {output_path}")
+    print(f"[+] High-fidelity OAuth Consent log for {username} written to: {output_path}")
 
 
 def main():
@@ -117,6 +110,7 @@ def main():
     args = parser.parse_args()
 
     # Initialize the simulator instance to read existing configurations
+    # This step is critical for pulling the real user context from your YAML files
     simulator = EntraLogSimulator(
         users_file="/home/spen/entra_logs/configs/users.yaml",
         service_principals_file="/home/spen/entra_logs/configs/service_principals.yaml",
