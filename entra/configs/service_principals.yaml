@@ -1,0 +1,22 @@
+service_principals:
+  - app_id: "spn-0001"
+    display_name: "Backup Automation"
+    client_ip: "13.66.55.1"
+    city: "Chicago"
+    country: "US"
+    asn: "AS8075"
+    asn_name: "MICROSOFT-CORP-MSN-AS-BLOCK"
+    is_proxy: false
+    user_agent: "AzureBackupClient/1.0"
+    device_id: null
+
+  - app_id: "spn-0002"
+    display_name: "Monitoring Tool"
+    client_ip: "40.76.55.22"
+    city: "Stow"
+    country: "US"
+    asn: "AS8075"
+    asn_name: "MICROSOFT-CORP-MSN-AS-BLOCK"
+    is_proxy: false
+    user_agent: "AzureMonitorAgent/3.4"
+    device_id: null
