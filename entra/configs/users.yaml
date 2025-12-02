@@ -1,0 +1,105 @@
+users:
+  - user_id: user1@contoso.com
+    roles: ["employee", "Database User"]
+    user_type: Regular
+    device_id: device-101
+    hostname: workstation-user1
+    os: Windows 10
+    browser: Edge
+    user_agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)
+    ip: 3.85.25.21
+    city: Stow
+    country: US
+    asn: AS7018
+    asn_name: ATT-INTERNET4
+    is_proxy: false
+
+  - user_id: user2@contoso.com
+    roles: ["employee"]
+    user_type: Regular
+    device_id: device-102
+    hostname: workstation-user2
+    os: Ubuntu Linux
+    browser: Firefox
+    user_agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64)
+    ip: 44.195.101.34
+    city: Stow
+    country: US
+    asn: AS7018
+    asn_name: ATT-INTERNET4
+    is_proxy: false
+
+  - user_id: user3@contoso.com
+    roles: ["employee"]
+    user_type: Regular 
+    device_id: device-103
+    hostname: workstation-user3
+    os: macOS
+    browser: Safari
+    user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)
+    ip: 104.26.3.2
+    city: Cleveland
+    country: US
+    asn: AS7018
+    asn_name: ATT-INTERNET4
+    is_proxy: false
+
+  - user_id: user4@contoso.com
+    roles: ["employee"]
+    user_type: Regular
+    device_id: device-104
+    hostname: workstation-user4
+    os: Windows 10
+    browser: Edge
+    user_agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)
+    ip: 44.192.30.81
+    city: Akron
+    country: US
+    asn: AS7018
+    asn_name: ATT-INTERNET4
+    is_proxy: false
+
+  - user_id: user5@contoso.com
+    roles: ["employee"]
+    user_type: Regular
+    device_id: device-105
+    hostname: workstation-user5
+    os: macOS
+    browser: Safari
+    user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)
+    ip: 52.15.203.125
+    city: Stow
+    country: US
+    asn: AS7018
+    asn_name: ATT-INTERNET4
+    is_proxy: false
+
+  - user_id: admin1@contoso.com
+    roles: ["admin"]
+    user_type: Administrator
+    device_id: device-099
+    hostname: admin-macbook
+    os: macOS
+    browser: Safari
+    user_agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)
+    ip: 104.26.3.2
+    city: New York
+    country: US
+    asn: AS7018
+    asn_name: ATT-INTERNET4
+    is_proxy: false
+
+  - user_id: guestuser1@gmail.com
+    roles: ["guest"]
+    user_type: Guest
+    device_id: device-824
+    hostname: guest-device
+    os: Ubuntu Linux
+    browser: Firefox
+    user_agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64)
+    ip: 3.85.25.21
+    city: New York
+    country: US
+    asn: AS7018
+    asn_name: ATT-INTERNET4
+    is_proxy: false
