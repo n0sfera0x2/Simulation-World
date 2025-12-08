@@ -3,14 +3,12 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-# --- EntraLogSimulator Placeholder (Assuming it handles the user lookup) ---
 try:
     from entra_simulator import EntraLogSimulator
 except ImportError:
     print("Warning: EntraLogSimulator class not found. Using a placeholder for initialization.")
     class EntraLogSimulator:
         def __init__(self, **kwargs):
-            # Mock essential attributes needed for the script to run
             self.users = [{
                 "user_id": "admin1@contoso.com",
                 "ip": "44.192.30.81", 
@@ -24,26 +22,24 @@ def generate_flat_oauth_consent_log(username, output_path, simulator):
     for an OAuth consent event that matches the XDM rule expectations.
     """
     
-    # 1. Find user context
     user = next((u for u in simulator.users if u.get("user_id") == username), None)
     if not user:
         user = {
             "user_id": username,
-            "ip": "44.192.30.81", # Use the alert's IP
+            "ip": "44.192.30.81", 
             "display_name": username.split('@')[0].capitalize(),
         }
         print(f"Warning: User '{username}' not found. Using default context.")
 
-    # 2. Time logic
+    # Time logic
     consent_dt = datetime.now(timezone.utc)
-    consent_ts = consent_dt.strftime("%Y-%m-%dT%H:%M:%SZ") # Simplified for the flat format
+    consent_ts = consent_dt.strftime("%Y-%m-%dT%H:%M:%SZ") 
 
-    # 3. Define the critical OAuth context (mimicking the original XSIAM alert's Raw Data)
-    OAUTH_APP_ID = "10000000-dead-beef-baad-ph1shp0rtal" # Matches your sample log AppId
-    OAUTH_APP_NAME = "Contoso Phish Portal"              # Matches your sample log AppDisplayName
+    OAUTH_APP_ID = "10000000-dead-beef-baad-ph1shp0rtal" 
+    OAUTH_APP_NAME = "Contoso Phish Portal"              
     OAUTH_SCOPES = "Mail.ReadWrite, offline_access, MailboxSettings.ReadWrite"
     
-    # The ConsentToApp log entry (FLAT STRUCTURE)
+    
     log_entry = {
       "_time": consent_ts, 
       "Id": str(uuid.uuid4()),
@@ -53,11 +49,11 @@ def generate_flat_oauth_consent_log(username, output_path, simulator):
       "ResultType": 0,
       "UserType": 0,
       "Roles": ["employee"], 
-      "ClientIP": user.get("ip"), # <-- FLAT FIELD
-      "UserId": username,         # <-- FLAT FIELD
+      "ClientIP": user.get("ip"), 
+      "UserId": username,         
       "Workload": "AzureActiveDirectory",
-      "ResultStatus": "Success",  # <-- FLAT FIELD
-      "DeviceDetail": {           # <-- FLAT FIELD
+      "ResultStatus": "Success",  
+      "DeviceDetail": {           
         "DeviceId": "device-phish-consent",
         "OperatingSystem": "Windows 10",
         "Browser": "Chrome"
@@ -65,22 +61,18 @@ def generate_flat_oauth_consent_log(username, output_path, simulator):
       "UserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.88 Safari/537.36",
       "AppId": OAUTH_APP_ID,
       "AppDisplayName": OAUTH_APP_NAME,
-      # Add necessary flat audit details
       "AdditionalDetails": [
         {"Key": "AuthenticationRequirement", "Value": "SingleFactorAuthentication"}, 
         {"Key": "MfaRequired", "Value": "false"},
-        # IMPORTANT: Embed the malicious scopes/details here for the XSIAM correlation rule to find.
-        {"Key": "RequestedScopes", "Value": OAUTH_SCOPES}, # Custom key for correlation
+        {"Key": "RequestedScopes", "Value": OAUTH_SCOPES}, 
         {"Key": "ConsentType", "Value": "User"}
       ], 
-      "GeoLocation": {"Country": "US", "City": "Dallas"}, # Must be present to map GeoLocation fields
+      "GeoLocation": {"Country": "US", "City": "Dallas"},
       "ASN": {"ASN": "AS7018", "ASN_Name": "ATT-INTERNET4", "IsProxy": "false"},
       "Resource": "Application",
-      # Add the full scope string here so the XSIAM correlation rule can easily grab it
       "ScopeDetails": OAUTH_SCOPES
     }
     
-    # 4. Write log
     with open(output_path, "w") as f:
         f.write(json.dumps(log_entry) + "\n")
 
@@ -97,7 +89,7 @@ def main():
                         help="Output path for the logs")
     args = parser.parse_args()
 
-    # Initialize the simulator instance (as before)
+    
     simulator = EntraLogSimulator(
         users_file="/home/spen/entra_logs/configs/users.yaml",
         service_principals_file="/home/spen/entra_logs/configs/service_principals.yaml",
