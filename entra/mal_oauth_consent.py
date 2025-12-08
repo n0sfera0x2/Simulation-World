@@ -12,8 +12,7 @@ except ImportError:
             self.users = [{
                 "user_id": "admin1@contoso.com",
                 "ip": "44.192.30.81", 
-                "display_name": "Admin One",
-                # ... other user details
+                "display_name": "Admin One"
             }]
 
 def generate_flat_oauth_consent_log(username, output_path, simulator):
